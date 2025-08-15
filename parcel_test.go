@@ -86,12 +86,7 @@ func TestAddGetDelete(t *testing.T) {
 			testFunc: func(*testing.T, ParcelStore, Parcel) {
 				res, err := store.Get(parcel.Number)
 				require.NoError(t, err, "failed to retrieve parcel with ID %d from database. Error: %v", parcel.Number, err)
-
-				assert.Equal(t, res.Address, parcel.Address, "address mismatch. Expected: %v, Actual: %v", parcel.Address, res.Address)
-				assert.Equal(t, res.Client, parcel.Client, "client mismatch. Expected: %v, Actual: %v", parcel.Client, res.Client)
-				assert.Equal(t, res.CreatedAt, parcel.CreatedAt, "createdAt mismatch. Expected: %v, Actual: %v", parcel.CreatedAt, res.CreatedAt)
-				assert.Equal(t, res.Number, parcel.Number, "ID mismatch. Expected: %v, Actual: %v", parcel.Number, res.Number)
-				assert.Equal(t, res.Status, parcel.Status, "status mismatch. Expected: %v, Actual: %v", parcel.Status, res.Status)
+				assert.Equal(t, parcel, res, "parcel mismatch. Expected: %v. Actual: %v", parcel, res)
 			},
 		},
 		{
@@ -104,7 +99,7 @@ func TestAddGetDelete(t *testing.T) {
 				require.Error(t, err, "expected error when trying to retrieve deleted parcel with ID %d", parcel.Number)
 
 				originalErr := errors.Unwrap(err)
-				require.Equal(t, sql.ErrNoRows, originalErr, "expected specific sql.ErrNoRows error when searching for deleted parcel with ID %d", parcel.Number)
+				require.ErrorIs(t, originalErr, sql.ErrNoRows, "expected specific sql.ErrNoRows error when searching for deleted parcel with ID %d", parcel.Number)
 			},
 		},
 	}
@@ -256,10 +251,6 @@ func TestGetByClient(t *testing.T) {
 		originalParcel, ok := parcelMap[parcel.Number]
 		require.True(t, ok, "parcel with ID %d not found in original data", parcel.Number)
 		// Проверка всех полей полученной посылки
-		assert.Equal(t, parcel.Address, originalParcel.Address, "address mismatch. Expected: %s, Actual: %s", originalParcel.Address, parcel.Address)
-		assert.Equal(t, parcel.Client, originalParcel.Client, "client ID mismatch. Expected: %d, Actual: %d", originalParcel.Client, parcel.Client)
-		assert.Equal(t, parcel.CreatedAt, originalParcel.CreatedAt, "createdAt mismatch. Expected: %s, Actual: %s", originalParcel.CreatedAt, parcel.CreatedAt)
-		assert.Equal(t, parcel.Number, originalParcel.Number, "parcel ID mismatch. Expected: %d, Actual: %d", originalParcel.Number, parcel.Number)
-		assert.Equal(t, parcel.Status, originalParcel.Status, "status mismatch. Expected: %s, Actual: %s", originalParcel.Status, parcel.Status)
+		assert.Equal(t, originalParcel, parcel, "parcel mismatch. Expected: %v. Actual: %v", originalParcel, parcel)
 	}
 }

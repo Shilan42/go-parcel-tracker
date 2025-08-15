@@ -20,6 +20,7 @@ func NewParcelStore(db *sql.DB) ParcelStore {
 
 // Add - метод для добавления новой посылки в базу данных
 func (s ParcelStore) Add(p Parcel) (int, error) {
+
 	// Выполняем SQL-запрос на вставку новой посылки
 	res, err := s.db.Exec("INSERT INTO parcel (client, status, address, created_at) VALUES (:client, :status, :address, :created_at)",
 		sql.Named("client", p.Client),
@@ -41,6 +42,7 @@ func (s ParcelStore) Add(p Parcel) (int, error) {
 
 // Get - метод для получения посылки по её номеру
 func (s ParcelStore) Get(number int) (Parcel, error) {
+
 	// Создаем пустую структуру посылки
 	p := Parcel{}
 
@@ -59,6 +61,7 @@ func (s ParcelStore) Get(number int) (Parcel, error) {
 
 // GetByClient - метод для получения всех посылок определенного клиента
 func (s ParcelStore) GetByClient(client int) ([]Parcel, error) {
+
 	// Создаем слайс для хранения найденных посылок
 	var res []Parcel
 
@@ -83,12 +86,19 @@ func (s ParcelStore) GetByClient(client int) ([]Parcel, error) {
 		// Добавляем посылку = структуру в слайс для хранения найденных посылок
 		res = append(res, p)
 	}
+
+	// Проверяем наличие ошибок, возникших при итерации по всем строкам результата запроса
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating through rows while retrieving client's parcels %d: %w", client, err)
+	}
+
 	// Возвращаем все найденные посылки
 	return res, nil
 }
 
 // SetStatus - метод для обновления статуса посылки
 func (s ParcelStore) SetStatus(number int, status string) error {
+
 	// Выполняем SQL-запрос на обновление статуса
 	_, err := s.db.Exec("UPDATE parcel SET status = :status WHERE number = :number", sql.Named("status", status), sql.Named("number", number))
 	if err != nil {
@@ -98,67 +108,47 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 	return nil
 }
 
-// SetAddress - метод для установки нового адреса посылки
+// SetAddress - метод для установки нового адреса посылки при условии, что её статус зарегистрирован
 func (s ParcelStore) SetAddress(number int, address string) error {
-	// Начинаем транзакцию для обеспечения целостности данных (решил попробовать поюзать транзакции)
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("transaction start error for updating parcel №%d address: %w", number, err)
-	}
-	// Автооткат транзакции при ошибке
-	defer tx.Rollback()
 
-	// Получаем текущую посылку для проверки статуса
-	p, err := s.Get(number)
-	if err != nil {
-		return fmt.Errorf("error retrieving parcel №%d data for status check: %w", number, err)
-	}
-
-	// Проверяем, что статус посылки позволяет изменить адрес
-	if p.Status != ParcelStatusRegistered {
-		log.Printf("impossible to update address for parcel №%d: invalid status (expected 'registered', received: %s)", number, p.Status)
-		// Возвращаем nil, так как это не критичная ошибка
-		return nil
-	}
-
-	// Выполняем обновление адреса
-	_, err = s.db.Exec("UPDATE parcel SET address = :address WHERE number = :number", sql.Named("address", address), sql.Named("number", number))
+	// Выполняем обновление с проверкой статуса в одном запросе
+	result, err := s.db.Exec("UPDATE parcel SET address = :address WHERE number = :number AND status = :status",
+		sql.Named("address", address),
+		sql.Named("number", number),
+		sql.Named("status", ParcelStatusRegistered))
 	if err != nil {
 		return fmt.Errorf("address update error for parcel №%d: new address '%s', error: %w", number, address, err)
 	}
 
-	// Завершаем транзакцию
-	return tx.Commit()
-}
-
-func (s ParcelStore) Delete(number int) error {
-	// Начинаем транзакцию для обеспечения целостности данных (решил попробовать поюзать транзакции)
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("transaction start error for parcel deletion №%d: %w", number, err)
-	}
-	// Автооткат при ошибке
-	defer tx.Rollback()
-
-	// Получаем текущую посылку для проверки статуса
-	p, err := s.Get(number)
-	if err != nil {
-		return fmt.Errorf("error retrieving parcel data №%d for status check: %w", number, err)
-	}
-
-	// Проверяем, что статус посылки позволяет её удалить
-	if p.Status != ParcelStatusRegistered {
-		log.Printf("impossible to delete parcel №%d: invalid status (expected 'registered', received: %s)", number, p.Status)
-		// Возвращаем nil, так как это не критичная ошибка
+	// Проверяем, что строка была обновлена
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("update denied for parcel %d: invalid status or parcel not found", number)
 		return nil
 	}
 
-	// Выполняем удаление посылки
-	_, err = s.db.Exec("DELETE FROM parcel WHERE number = :number", sql.Named("number", number))
+	return nil
+}
+
+// SetAddress - метод для удаления посылки из базы данных при условии, что её статус зарегистрирован
+func (s ParcelStore) Delete(number int) error {
+
+	// Выполняем удаление с проверкой статуса в одном запросе
+	result, err := s.db.Exec(
+		"DELETE FROM parcel WHERE number = :number AND status = :status",
+		sql.Named("number", number),
+		sql.Named("status", ParcelStatusRegistered),
+	)
 	if err != nil {
 		return fmt.Errorf("parcel deletion error №%d: %w", number, err)
 	}
 
-	// Завершаем транзакцию
-	return tx.Commit()
+	// Проверяем, что строка была удалена
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("delete denied for parcel №%d: invalid status or parcel not found", number)
+		return nil
+	}
+
+	return nil
 }
